@@ -1,0 +1,102 @@
+$extractors:
+  rpcnet_reg:
+    $template: registry_select
+    $paths:
+    - HKLM\System\CurrentControlSet\Services\rpcnet
+    - HKLM\System\CurrentControlSet\Services\rpcnetp
+    $schema:
+      ImagePath: String
+      DisplayName: String
+      SourceRegistryKey: RegistryKey
+
+  rpcnet_file:
+    $template: windows_shell
+    $command: 'FOR %i IN (?files) DO (certutil -hashfile %i SHA256 | findstr /v "CertUtil: ")'
+    $params:
+      files: str
+  
+  rpcnet_powershell:
+    $template: powershell
+    $command: '?files | ForEach-Object { Get-FileHash -Path $_ -Algorithm SHA256 -ErrorAction SilentlyContinue } | ConvertTo-Csv -NoTypeInformation -Delimiter :'
+    $params:
+      files: str
+
+$transformers:
+  lcertutil:
+    $template: regexp_finditer
+    $pattern: '(?P<item>"(?P<algorithm>[^"]+)":"(?P<hash>[0-9a-fA-F]{64})":"(\\\\(?P<host>[^\\]+)\\)?(?P<path>.+?)(?P<name>[^\\\r\n]+)")'
+    $schema:
+      item: String
+
+  scertutil:
+    $template: regexp_search
+    $pattern: '(?P<item>"(?P<algorithm>[^"]+)":"(?P<hash>[0-9a-fA-F]{64})":"(\\\\(?P<host>[^\\]+)\\)?(?P<path>.+?)(?P<name>[^\\\r\n]+)")'
+    $schema:
+      name: String
+      path: String
+      hash: String
+
+  fcertutil_name:
+    $template: function
+    $apply: scertutil
+    $output: name
+
+  fcertutil_path:
+    $template: function
+    $apply: scertutil
+    $output: path
+
+  fcertutil_hash:
+    $template: function
+    $apply: scertutil
+    $output: hash
+
+$loaders:
+  frpcnet:
+  - $template: mapping
+    $target: Core.Software
+    $kind: detect
+    $parent: OperatingSystem.Windows.WindowsHost
+    $params: 
+      files: '"$env:windir\System32\rpcnet.exe", "$env:windir\System32\rpcnetp.exe", "$env:windir\SysWOW64\rpcnet.exe", "$env:windir\SysWOW64\rpcnetp.exe"'
+    $origin:
+      $template: get_extractor_path
+      $name: rpcnet_powershell
+    $loop:
+      $template: apply_transformer
+      $name: lcertutil
+      $source: $row.Data
+    $field_map:
+      Name:
+        $template: apply_transformer
+        $name: fcertutil_name
+        $source: $item.item
+      Version: '0'
+      InstallPath:
+        $template: apply_transformer
+        $name: fcertutil_path
+        $source: $item.item
+      OsFamily: Windows
+      Vendor: Absolute Software
+      AdditionalProperties:
+        sha256:
+          $template: apply_transformer
+          $name: fcertutil_hash
+          $source: $item.item
+  rrpcnet:
+  - $template: mapping
+    $target: Core.Software
+    $kind: detect
+    $parent: OperatingSystem.Windows.WindowsHost
+    $origin:
+      $template: get_extractor_path
+      $name: rpcnet_reg
+    $field_map:
+      Name: $row.DisplayName
+      Version: '0'
+      InstallPath: $row.ImagePath
+      OsFamily: Windows
+      Vendor: Absolute Software
+      UninstallKey: $row.SourceRegistryKey.Path
+      Architecture: $row.SourceRegistryKey.Arch
+      

@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Отчет безопасности (2025-08-16 - 2025-08-18)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.0/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 4px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            max-width: 210mm;
+            margin: 0 auto;
+            padding: 4px;
+            text-align: center;
+
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+
+        }
+
+        h1 {
+            color: #333;
+            font-size: 24px;
+        }
+
+        h2 {
+            color: #333;
+            font-size: 20px;
+        }
+
+        .charts-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .chart-box {
+            flex: 1 1 300px;
+            min-width: 300px;
+            max-width: 400px;
+            max-height: 200px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: white;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 16px;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 2px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        .loading {
+            margin: 20px 0;
+            color: #666;
+            font-style: italic;
+        }
+
+        .hide {
+            display: none;
+        }
+
+        .no-print {
+            display: block;
+        }
+
+        /* Стили для печати */
+        @media print {
+            @page {
+                margin: 0;
+                size: auto;
+            }
+
+            .no-print {
+                display: none !important;
+            }
+
+            .print-only {
+                display: block !important;
+            }
+
+            body {
+                margin: 0;
+                font-size: 12pt;
+                line-height: 1.4;
+            }
+
+            /* Убираем фоны для экономии чернил */
+            * {
+                background: transparent !important;
+                color: black !important;
+                box-shadow: none !important;
+                text-shadow: none !important;
+            }
+
+            /* Указываем области печати */
+            .print-area {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="print-area">
+            <img src="https://lp.kaspersky.com/ru/wp-content/themes/kuma/images/hero-bg.jpg" alt="logo" style="margin-top: 20px; max-height: 100px;"></img>
+            <h1 style="text-align:center">Отчет по событиям информационной безопасности</br>за период: {{events-date-export}}</h1>
+            <div class="loading" id="loading">Загрузка данных...</div>
+            <div id="report-content" style="display: none;">
+                <h2 style="text-align:center">Распределение событий по источникам</h2>
+                <div class="charts-container">
+                    <div class="chart-box">
+                        <canvas id="eventsChart"></canvas>
+                    </div>
+                    <div class="chart-box">
+                        <canvas id="incidentsChart"></canvas>
+                    </div>
+                </div>
+                <table id="events-table">
+                    <thead>
+                        <tr>
+                            <th style="text-align:center">Источник событий</th>
+                            <th style="text-align:center">Событий безопасности</th>
+                            <th style="text-align:center">Потенциальных инцидентов</th>
+                        </tr>
+                    </thead>
+                    <tbody id="events-table-body">
+                    </tbody>
+                </table>
+            </div>
+            <div class="print-area">
+                <h2 style="text-align:center">Потенциальные инциденты</h2>
+                <div class="charts-container">
+                    <div class="chart-box">
+                        <canvas id="alertsPriorityChart"></canvas>
+                    </div>
+                    <div class="chart-box">
+                        <canvas id="alertsTypesChart"></canvas>
+                    </div>
+                </div>
+                <table id="alerts-table">
+                    <thead>
+                        <tr>
+                            <th style="text-align:center">Потенциальные инциденты</th>
+                            <th style="text-align:center">Количество</th>
+                        </tr>
+                    </thead>
+                    <tbody id="alerts-table-body">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        String.prototype.ellip = function (length) {
+          return this.length > length ? this.substring(0, length) + "…" : this;
+        }
+        // Фиксированные CSV данные
+        const eventsCSV = `source,base,correlated\n{{events-data-export}}`;
+        const alertsCSV = `count,priority,rule\n{{alerts-data-export}}`;
+
+        // Глобальные переменные для хранения данных и диаграмм
+        let events = [];
+        let alerts = [];
+        let descriptions = [];
+        let charts = {
+            eventsChart: null,
+            incidentsChart: null,
+            alertsPriorityChart: null,
+            alertsTypesChart: null
+        };
+        
+        // Форматирование чисел с пробелами
+        function formatNumber(num) {
+            return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+        }
+        
+        // Инициализация данных и построение отчетов
+        function initializeReport() {
+
+            // Обрабатываем данные событий
+            events = Papa.parse(eventsCSV, { header: true }).data.map(row => ({
+                source: row['source'],
+                events: parseInt(row['base']) || 0,
+                incidents: parseInt(row['correlated']) || 0
+            })).filter(item => item.source); // Фильтруем пустые строки
+            
+            // Обрабатываем данные оповещений
+            alerts = Papa.parse(alertsCSV, { header: true }).data.map(row => ({
+                count: parseInt(row['count']) || 0,
+                priority: row['priority'],
+                id: row['id']
+            })).filter(item => item.rule); // Фильтруем пустые строки
+
+            // Сортируем данные
+            events.sort((a, b) => b.events - a.events);
+            alerts.sort((a, b) => b.count - a.count);
+            
+            // Строим визуализации
+            createEventsChart();
+            createIncidentsChart();
+            createAlertsPriorityChart();
+            createAlertsTypesChart();
+            
+            // Заполняем таблицы
+            fillEventsTable();
+            fillAlertsTable();
+            
+            // Показываем отчет
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('report-content').style.display = 'block';
+        }
+        
+        // Создание диаграммы событий
+        function createEventsChart() {
+            const ctx = document.getElementById('eventsChart').getContext('2d');
+            
+            // Группировка данных (первые 5 + остальные)
+            const topEvents = events.slice(0, 5);
+            const othersEvents = events.slice(5).reduce((sum, item) => sum + item.events, 0);
+            
+            const labels = [
+                ...topEvents.map(item => `${item.source.ellip(16)}: ${formatNumber(item.events)}`),
+                `Остальные: ${formatNumber(othersEvents)}`
+            ];
+            
+            const data = [
+                ...topEvents.map(item => item.events),
+                othersEvents
+            ];
+            
+            if (charts.eventsChart) {
+                charts.eventsChart.destroy();
+            }
+            
+            charts.eventsChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        borderWidth: 0,
+                        backgroundColor: [
+                            '#FF6384',
+                            '#36A2EB',
+                            '#FFCE56',
+                            '#4BC0C0',
+                            '#9966FF',
+                            '#C9CBCF'
+                        ]
+                    }]
+                },
+                options: getChartOptions('События безопасности по источникам')
+            });
+        }
+        
+        // Создание диаграммы инцидентов
+        function createIncidentsChart() {
+            const ctx = document.getElementById('incidentsChart').getContext('2d');
+            
+            // Фильтруем только источники с инцидентами
+            const withIncidents = events.filter(item => item.incidents > 0);
+            
+            // Группировка данных (первые 5 + остальные)
+            const topIncidents = withIncidents.slice(0, 5);
+            const othersIncidents = withIncidents.slice(5).reduce((sum, item) => sum + item.incidents, 0);
+            
+            const labels = [
+                ...topIncidents.map(item => `${item.source.ellip(16)}: ${formatNumber(item.incidents)}`),
+                othersIncidents > 0 ? `Остальные: ${formatNumber(othersIncidents)}` : null
+            ].filter(Boolean);
+            
+            const data = [
+                ...topIncidents.map(item => item.incidents),
+                othersIncidents
+            ].filter(item => item > 0);
+            
+            if (charts.incidentsChart) {
+                charts.incidentsChart.destroy();
+            }
+            
+            charts.incidentsChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        borderWidth: 0,
+                        backgroundColor: [
+                            '#FF6384',
+                            '#36A2EB',
+                            '#FFCE56',
+                            '#4BC0C0',
+                            '#9966FF',
+                            '#C9CBCF'
+                        ].slice(0, labels.length)
+                    }]
+                },
+                options: getChartOptions('Потенциальные инциденты по источникам')
+            });
+        }
+        
+        // Создание диаграммы приоритетов оповещений
+        function createAlertsPriorityChart() {
+            const ctx = document.getElementById('alertsPriorityChart').getContext('2d');
+            
+            // Группировка по приоритетам
+            const priorityGroups = {
+                'Критический': 0,
+                'Высокий': 0,
+                'Средний': 0,
+                'Низкий': 0
+            };
+            
+            alerts.forEach(alert => {
+                if (alert.priority.includes('☢️')) priorityGroups['Критический'] += alert.count;
+                else if (alert.priority.includes('🔴')) priorityGroups['Высокий'] += alert.count;
+                else if (alert.priority.includes('🟡')) priorityGroups['Средний'] += alert.count;
+                else if (alert.priority.includes('🟢')) priorityGroups['Низкий'] += alert.count;
+            });
+            
+            const labels = Object.keys(priorityGroups).map(key => 
+                `${key.ellip(16)}: ${formatNumber(priorityGroups[key])}`
+            );
+            const data = Object.values(priorityGroups);
+            
+            if (charts.alertsPriorityChart) {
+                charts.alertsPriorityChart.destroy();
+            }
+            
+            charts.alertsPriorityChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        borderWidth: 0,
+                        backgroundColor: [
+                            '#940000',
+                            '#FF0000',
+                            '#FFFF00',
+                            '#00FF00'
+                        ]
+                    }]
+                },
+                options: getChartOptions('Потенциальные инциденты по приоритетам')
+            });
+        }
+        
+        // Создание диаграммы типов оповещений
+        function createAlertsTypesChart() {
+            const ctx = document.getElementById('alertsTypesChart').getContext('2d');
+            
+            // Группировка данных (первые 3 + остальные)
+            const topAlerts = alerts.slice(0, 5);
+            const othersAlerts = alerts.slice(5).reduce((sum, item) => sum + item.count, 0);
+            
+            const labels = [
+                ...topAlerts.map(item => `${item.rule.ellip(16)}: ${formatNumber(item.count)}`),
+                `Другие: ${formatNumber(othersAlerts)}`
+            ];
+            
+            const data = [
+                ...topAlerts.map(item => item.count),
+                othersAlerts
+            ];
+            
+            if (charts.alertsTypesChart) {
+                charts.alertsTypesChart.destroy();
+            }
+            
+            charts.alertsTypesChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        borderWidth: 0,
+                        backgroundColor: [
+                            '#FF6384',
+                            '#36A2EB',
+                            '#FFCE56',
+                            '#4BC0C0',
+                            '#9966FF',
+                            '#C9CBCF'
+                        ]
+                    }]
+                },
+                options: getChartOptions('Основные типы потенциальных инцидентов')
+            });
+        }
+        
+        // Общие настройки диаграмм
+        function getChartOptions(title) {
+            return {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: {
+                            boxWidth: 12,
+                            font: {
+                                size: 12,
+                                family: 'Consolas'
+                            }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (context) => (context.label || '') 
+                        }
+                    },
+                    title: {
+                        display: true,
+                        padding: 0,
+                        text: title,
+                        font: {
+                            size: 16
+                        }
+                    }
+                }
+            };
+        }
+        
+        // Заполнение таблицы событий
+        function fillEventsTable() {
+            const tbody = document.getElementById('events-table-body');
+            tbody.innerHTML = '';
+            
+            events.forEach(item => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td style="text-align:left">${item.source}</td>
+                    <td style="text-align:right">${formatNumber(item.events)}</td>
+                    <td style="text-align:right">${formatNumber(item.incidents)}</td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            // Добавляем итоговую строку
+            const totalRow = document.createElement('tr');
+            totalRow.style.fontWeight = 'bold';
+            const totalEvents = events.reduce((sum, item) => sum + item.events, 0);
+            const totalIncidents = events.reduce((sum, item) => sum + item.incidents, 0);
+            totalRow.innerHTML = `
+                <td style="text-align:left">Итого</td>
+                <td style="text-align:right">${formatNumber(totalEvents)}</td>
+                <td style="text-align:right">${formatNumber(totalIncidents)}</td>
+            `;
+            tbody.appendChild(totalRow);
+        }
+        
+        // Заполнение таблицы оповещений
+        function fillAlertsTable() {
+            const tbody = document.getElementById('alerts-table-body');
+            tbody.innerHTML = '';
+            
+            alerts.forEach(item => {
+                const row = document.createElement('tr');
+                
+                // Определяем класс приоритета для стилизации
+                let priority = '';
+                if (item.priority.includes('☢️')) priority = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 0.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#940000"/><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 4.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#940000"/><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 8.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#940000"/><path d="M 2.5 12.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#940000"/></svg>';
+                else if (item.priority.includes('🔴')) priority = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 0.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z m 11 1 h -11 c -0.2761 0 -0.5 0.2239 -0.5 0.5 c 0 0.2761 0.2239 0.5 0.5 0.5 h 11 c 0.2761 0 0.5 -0.2239 0.5 -0.5 c 0 -0.2761 -0.2239 -0.5 -0.5 -0.5 z" fill="#B2B8BF"/><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 4.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#FF0000"/><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 8.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#FF0000"/><path d="M 2.5 12.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#FF0000"/></svg>';
+                else if (item.priority.includes('🟡')) priority = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 0.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z m 11 1 h -11 c -0.2761 0 -0.5 0.2239 -0.5 0.5 c 0 0.2761 0.2239 0.5 0.5 0.5 h 11 c 0.2761 0 0.5 -0.2239 0.5 -0.5 c 0 -0.2761 -0.2239 -0.5 -0.5 -0.5 z" fill="#B2B8BF"/><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 4.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z m 11 1 h -11 c -0.2761 0 -0.5 0.2239 -0.5 0.5 c 0 0.2761 0.2239 0.5 0.5 0.5 h 11 c 0.2761 0 0.5 -0.2239 0.5 -0.5 c 0 -0.2761 -0.2239 -0.5 -0.5 -0.5 z" fill="#B2B8BF"/><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 8.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#FFFF00"/><path d="M 2.5 12.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#FFFF00"/></svg>';
+                else if (item.priority.includes('🟢')) priority = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 0.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z m 11 1 h -11 c -0.2761 0 -0.5 0.2239 -0.5 0.5 c 0 0.2761 0.2239 0.5 0.5 0.5 h 11 c 0.2761 0 0.5 -0.2239 0.5 -0.5 c 0 -0.2761 -0.2239 -0.5 -0.5 -0.5 z" fill="#B2B8BF"/><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 4.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z m 11 1 h -11 c -0.2761 0 -0.5 0.2239 -0.5 0.5 c 0 0.2761 0.2239 0.5 0.5 0.5 h 11 c 0.2761 0 0.5 -0.2239 0.5 -0.5 c 0 -0.2761 -0.2239 -0.5 -0.5 -0.5 z" fill="#B2B8BF"/><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 8.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z m 11 1 h -11 c -0.2761 0 -0.5 0.2239 -0.5 0.5 c 0 0.2761 0.2239 0.5 0.5 0.5 h 11 c 0.2761 0 0.5 -0.2239 0.5 -0.5 c 0 -0.2761 -0.2239 -0.5 -0.5 -0.5 z" fill="#B2B8BF"/><path d="M 2.5 12.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#00FF00"/></svg>';
+                
+                row.innerHTML = `
+                    <td style="text-align:left">${priority} ${item.rule}</td>
+                    <td style="text-align:right">${formatNumber(item.count)}</td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            // Добавляем итоговую строку
+            const totalRow = document.createElement('tr');
+            totalRow.style.fontWeight = 'bold';
+            const totalAlerts = alerts.reduce((sum, item) => sum + item.count, 0);
+            totalRow.innerHTML = `
+                <td style="text-align:left">Итого</td>
+                <td style="text-align:right">${formatNumber(totalAlerts)}</td>
+            `;
+            tbody.appendChild(totalRow);
+        }
+        
+        // Инициализация при загрузке страницы
+        window.onload = initializeReport;
+    </script>
+</body>
+</html>

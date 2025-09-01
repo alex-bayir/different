@@ -87,7 +87,7 @@ if [ ! -d /etc/rsyslog.d ]; then mkdir /etc/rsyslog.d; echo "WARNING: /etc/rsysl
 echo -e "$([ $host ] && [ $port ] && echo "local6.=info @@$host:$port\n")$([ $journal ] && echo "local6.=info $journal\n")" > /etc/rsyslog.d/siem.conf || { echo "ERROR: Cannot create /etc/rsyslog.d/siem.conf" |& tee -a $log; exit 1; }
 
 # Restart daemons
-systemctl restart rsyslog |& tee -a $log
+[ `which systemctl` ] && { systemctl restart rsyslog |& tee -a $log; } || { kill -HUP $(ps -C rsyslogd -o pid=) && grep rsyslogd /var/log/syslog | tail -n 10 |& tee -a $log; }
 
 [ $host ] && [ $port ] && {
     echo "INFO: Checking communication with SIEM: An attempt to send a test message along with a log of changes"

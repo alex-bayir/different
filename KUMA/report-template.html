@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Отчет безопасности (2025-08-16 - 2025-08-18)</title>
+    <title>Report ({{events-date-export}})</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.0/papaparse.min.js"></script>
     <style>
@@ -61,7 +61,8 @@
             font-size: 16px;
         }
 
-        th, td {
+        th,
+        td {
             border: 1px solid #ddd;
             padding: 2px;
             text-align: left;
@@ -124,26 +125,26 @@
 
 <body>
     <div class="container">
-        <div class="print-area">
-            <img src="https://lp.kaspersky.com/ru/wp-content/themes/kuma/images/hero-bg.jpg" alt="logo" style="margin-top: 20px; max-height: 100px;"></img>
-            <h1 style="text-align:center">Отчет по событиям информационной безопасности</br>за период: {{events-date-export}}</h1>
-            <div class="loading" id="loading">Загрузка данных...</div>
-            <div id="report-content" style="display: none;">
-                <h2 style="text-align:center">Распределение событий по источникам</h2>
+        <img src="https://lp.kaspersky.com/ru/wp-content/themes/kuma/images/hero-bg.jpg" alt="logo" style="margin-top: 20px;"></img>
+        <h1 style="text-align:center">Information Security Events Report</br>{{events-date-export}}</h1>
+        <div class="loading" id="loading">loading...</div>
+        <div id="report-content" style="display: none;">
+            <div class="print-area">
+                <h2 style="text-align:center">Distribution of events by source</h2>
                 <div class="charts-container">
                     <div class="chart-box">
                         <canvas id="eventsChart"></canvas>
                     </div>
                     <div class="chart-box">
-                        <canvas id="incidentsChart"></canvas>
+                        <canvas id="alertsChart"></canvas>
                     </div>
                 </div>
                 <table id="events-table">
                     <thead>
                         <tr>
-                            <th style="text-align:center">Источник событий</th>
-                            <th style="text-align:center">Событий безопасности</th>
-                            <th style="text-align:center">Потенциальных инцидентов</th>
+                            <th style="text-align:center">source</th>
+                            <th style="text-align:center">events</th>
+                            <th style="text-align:center">alerts</th>
                         </tr>
                     </thead>
                     <tbody id="events-table-body">
@@ -151,7 +152,7 @@
                 </table>
             </div>
             <div class="print-area">
-                <h2 style="text-align:center">Потенциальные инциденты</h2>
+                <h2 style="text-align:center">Alerts</h2>
                 <div class="charts-container">
                     <div class="chart-box">
                         <canvas id="alertsPriorityChart"></canvas>
@@ -163,8 +164,8 @@
                 <table id="alerts-table">
                     <thead>
                         <tr>
-                            <th style="text-align:center">Потенциальные инциденты</th>
-                            <th style="text-align:center">Количество</th>
+                            <th style="text-align:center">alert</th>
+                            <th style="text-align:center">count</th>
                         </tr>
                     </thead>
                     <tbody id="alerts-table-body">
@@ -176,86 +177,72 @@
 
     <script>
         String.prototype.ellip = function (length) {
-          return this.length > length ? this.substring(0, length) + "…" : this;
+            return this.length > length ? this.substring(0, length) + "…" : this;
         }
-        // Фиксированные CSV данные
         const eventsCSV = `source,base,correlated\n{{events-data-export}}`;
-        const alertsCSV = `count,priority,rule\n{{alerts-data-export}}`;
+        const alertsCSV = `priority,rule,count\n{{alerts-data-export}}`;
 
-        // Глобальные переменные для хранения данных и диаграмм
         let events = [];
         let alerts = [];
-        let descriptions = [];
         let charts = {
             eventsChart: null,
-            incidentsChart: null,
+            alertsChart: null,
             alertsPriorityChart: null,
             alertsTypesChart: null
         };
-        
-        // Форматирование чисел с пробелами
+
         function formatNumber(num) {
             return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
         }
-        
-        // Инициализация данных и построение отчетов
-        function initializeReport() {
 
-            // Обрабатываем данные событий
+        function initializeReport() {
             events = Papa.parse(eventsCSV, { header: true }).data.map(row => ({
                 source: row['source'],
                 events: parseInt(row['base']) || 0,
-                incidents: parseInt(row['correlated']) || 0
-            })).filter(item => item.source); // Фильтруем пустые строки
-            
-            // Обрабатываем данные оповещений
+                alerts: parseInt(row['correlated']) || 0
+            })).filter(item => item.source);
+
             alerts = Papa.parse(alertsCSV, { header: true }).data.map(row => ({
                 count: parseInt(row['count']) || 0,
                 priority: row['priority'],
-                id: row['id']
-            })).filter(item => item.rule); // Фильтруем пустые строки
+                rule: row['rule']
+            })).filter(item => item.rule);
 
-            // Сортируем данные
             events.sort((a, b) => b.events - a.events);
             alerts.sort((a, b) => b.count - a.count);
-            
-            // Строим визуализации
+
             createEventsChart();
-            createIncidentsChart();
+            createAlertsChart();
             createAlertsPriorityChart();
             createAlertsTypesChart();
-            
-            // Заполняем таблицы
+
             fillEventsTable();
             fillAlertsTable();
-            
-            // Показываем отчет
+
             document.getElementById('loading').style.display = 'none';
             document.getElementById('report-content').style.display = 'block';
         }
-        
-        // Создание диаграммы событий
+
         function createEventsChart() {
             const ctx = document.getElementById('eventsChart').getContext('2d');
-            
-            // Группировка данных (первые 5 + остальные)
+
             const topEvents = events.slice(0, 5);
             const othersEvents = events.slice(5).reduce((sum, item) => sum + item.events, 0);
-            
+
             const labels = [
                 ...topEvents.map(item => `${item.source.ellip(16)}: ${formatNumber(item.events)}`),
-                `Остальные: ${formatNumber(othersEvents)}`
+                `Others: ${formatNumber(othersEvents)}`
             ];
-            
+
             const data = [
                 ...topEvents.map(item => item.events),
                 othersEvents
             ];
-            
+
             if (charts.eventsChart) {
                 charts.eventsChart.destroy();
             }
-            
+
             charts.eventsChart = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
@@ -273,36 +260,33 @@
                         ]
                     }]
                 },
-                options: getChartOptions('События безопасности по источникам')
+                options: getChartOptions('Events by source')
             });
         }
-        
-        // Создание диаграммы инцидентов
-        function createIncidentsChart() {
-            const ctx = document.getElementById('incidentsChart').getContext('2d');
-            
-            // Фильтруем только источники с инцидентами
-            const withIncidents = events.filter(item => item.incidents > 0);
-            
-            // Группировка данных (первые 5 + остальные)
-            const topIncidents = withIncidents.slice(0, 5);
-            const othersIncidents = withIncidents.slice(5).reduce((sum, item) => sum + item.incidents, 0);
-            
+
+        function createAlertsChart() {
+            const ctx = document.getElementById('alertsChart').getContext('2d');
+
+            const withAlerts = events.filter(item => item.alerts > 0);
+
+            const topAlerts = withAlerts.slice(0, 5);
+            const othersAlerts = withAlerts.slice(5).reduce((sum, item) => sum + item.alerts, 0);
+
             const labels = [
-                ...topIncidents.map(item => `${item.source.ellip(16)}: ${formatNumber(item.incidents)}`),
-                othersIncidents > 0 ? `Остальные: ${formatNumber(othersIncidents)}` : null
+                ...topAlerts.map(item => `${item.source.ellip(16)}: ${formatNumber(item.alerts)}`),
+                othersAlerts > 0 ? `Others: ${formatNumber(othersAlerts)}` : null
             ].filter(Boolean);
-            
+
             const data = [
-                ...topIncidents.map(item => item.incidents),
-                othersIncidents
+                ...topAlerts.map(item => item.alerts),
+                othersAlerts
             ].filter(item => item > 0);
-            
-            if (charts.incidentsChart) {
-                charts.incidentsChart.destroy();
+
+            if (charts.alertsChart) {
+                charts.alertsChart.destroy();
             }
-            
-            charts.incidentsChart = new Chart(ctx, {
+
+            charts.alertsChart = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
                     labels: labels,
@@ -319,38 +303,36 @@
                         ].slice(0, labels.length)
                     }]
                 },
-                options: getChartOptions('Потенциальные инциденты по источникам')
+                options: getChartOptions('Alerts by source')
             });
         }
-        
-        // Создание диаграммы приоритетов оповещений
+
         function createAlertsPriorityChart() {
             const ctx = document.getElementById('alertsPriorityChart').getContext('2d');
-            
-            // Группировка по приоритетам
+
             const priorityGroups = {
-                'Критический': 0,
-                'Высокий': 0,
-                'Средний': 0,
-                'Низкий': 0
+                'Critical': 0,
+                'High': 0,
+                'Medium': 0,
+                'Low': 0
             };
-            
+
             alerts.forEach(alert => {
-                if (alert.priority.includes('☢️')) priorityGroups['Критический'] += alert.count;
-                else if (alert.priority.includes('🔴')) priorityGroups['Высокий'] += alert.count;
-                else if (alert.priority.includes('🟡')) priorityGroups['Средний'] += alert.count;
-                else if (alert.priority.includes('🟢')) priorityGroups['Низкий'] += alert.count;
+                if (alert.priority.includes('☢️')) priorityGroups['Critical'] += alert.count;
+                else if (alert.priority.includes('🔴')) priorityGroups['High'] += alert.count;
+                else if (alert.priority.includes('🟡')) priorityGroups['Medium'] += alert.count;
+                else if (alert.priority.includes('🟢')) priorityGroups['Low'] += alert.count;
             });
-            
-            const labels = Object.keys(priorityGroups).map(key => 
+
+            const labels = Object.keys(priorityGroups).map(key =>
                 `${key.ellip(16)}: ${formatNumber(priorityGroups[key])}`
             );
             const data = Object.values(priorityGroups);
-            
+
             if (charts.alertsPriorityChart) {
                 charts.alertsPriorityChart.destroy();
             }
-            
+
             charts.alertsPriorityChart = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
@@ -366,32 +348,30 @@
                         ]
                     }]
                 },
-                options: getChartOptions('Потенциальные инциденты по приоритетам')
+                options: getChartOptions('Alerts by priority')
             });
         }
-        
-        // Создание диаграммы типов оповещений
+
         function createAlertsTypesChart() {
             const ctx = document.getElementById('alertsTypesChart').getContext('2d');
-            
-            // Группировка данных (первые 3 + остальные)
+
             const topAlerts = alerts.slice(0, 5);
             const othersAlerts = alerts.slice(5).reduce((sum, item) => sum + item.count, 0);
-            
+
             const labels = [
                 ...topAlerts.map(item => `${item.rule.ellip(16)}: ${formatNumber(item.count)}`),
-                `Другие: ${formatNumber(othersAlerts)}`
+                `Others: ${formatNumber(othersAlerts)}`
             ];
-            
+
             const data = [
                 ...topAlerts.map(item => item.count),
                 othersAlerts
             ];
-            
+
             if (charts.alertsTypesChart) {
                 charts.alertsTypesChart.destroy();
             }
-            
+
             charts.alertsTypesChart = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
@@ -409,11 +389,10 @@
                         ]
                     }]
                 },
-                options: getChartOptions('Основные типы потенциальных инцидентов')
+                options: getChartOptions('Alerts by type')
             });
         }
-        
-        // Общие настройки диаграмм
+
         function getChartOptions(title) {
             return {
                 responsive: true,
@@ -431,7 +410,7 @@
                     },
                     tooltip: {
                         callbacks: {
-                            label: (context) => (context.label || '') 
+                            label: (context) => (context.label || '')
                         }
                     },
                     title: {
@@ -445,70 +424,62 @@
                 }
             };
         }
-        
-        // Заполнение таблицы событий
+
         function fillEventsTable() {
             const tbody = document.getElementById('events-table-body');
             tbody.innerHTML = '';
-            
+
             events.forEach(item => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td style="text-align:left">${item.source}</td>
                     <td style="text-align:right">${formatNumber(item.events)}</td>
-                    <td style="text-align:right">${formatNumber(item.incidents)}</td>
+                    <td style="text-align:right">${formatNumber(item.alerts)}</td>
                 `;
                 tbody.appendChild(row);
             });
-            
-            // Добавляем итоговую строку
-            const totalRow = document.createElement('tr');
-            totalRow.style.fontWeight = 'bold';
-            const totalEvents = events.reduce((sum, item) => sum + item.events, 0);
-            const totalIncidents = events.reduce((sum, item) => sum + item.incidents, 0);
-            totalRow.innerHTML = `
+
+            const total = document.createElement('tr');
+            total.style.fontWeight = 'bold';
+            total.innerHTML = `
                 <td style="text-align:left">Итого</td>
-                <td style="text-align:right">${formatNumber(totalEvents)}</td>
-                <td style="text-align:right">${formatNumber(totalIncidents)}</td>
+                <td style="text-align:right">${formatNumber(events.reduce((sum, item) => sum + item.events, 0))}</td>
+                <td style="text-align:right">${formatNumber(events.reduce((sum, item) => sum + item.alerts, 0))}</td>
             `;
-            tbody.appendChild(totalRow);
+            tbody.appendChild(total);
         }
-        
-        // Заполнение таблицы оповещений
+
         function fillAlertsTable() {
             const tbody = document.getElementById('alerts-table-body');
             tbody.innerHTML = '';
-            
+
             alerts.forEach(item => {
                 const row = document.createElement('tr');
-                
-                // Определяем класс приоритета для стилизации
+
                 let priority = '';
                 if (item.priority.includes('☢️')) priority = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 0.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#940000"/><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 4.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#940000"/><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 8.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#940000"/><path d="M 2.5 12.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#940000"/></svg>';
                 else if (item.priority.includes('🔴')) priority = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 0.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z m 11 1 h -11 c -0.2761 0 -0.5 0.2239 -0.5 0.5 c 0 0.2761 0.2239 0.5 0.5 0.5 h 11 c 0.2761 0 0.5 -0.2239 0.5 -0.5 c 0 -0.2761 -0.2239 -0.5 -0.5 -0.5 z" fill="#B2B8BF"/><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 4.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#FF0000"/><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 8.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#FF0000"/><path d="M 2.5 12.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#FF0000"/></svg>';
                 else if (item.priority.includes('🟡')) priority = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 0.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z m 11 1 h -11 c -0.2761 0 -0.5 0.2239 -0.5 0.5 c 0 0.2761 0.2239 0.5 0.5 0.5 h 11 c 0.2761 0 0.5 -0.2239 0.5 -0.5 c 0 -0.2761 -0.2239 -0.5 -0.5 -0.5 z" fill="#B2B8BF"/><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 4.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z m 11 1 h -11 c -0.2761 0 -0.5 0.2239 -0.5 0.5 c 0 0.2761 0.2239 0.5 0.5 0.5 h 11 c 0.2761 0 0.5 -0.2239 0.5 -0.5 c 0 -0.2761 -0.2239 -0.5 -0.5 -0.5 z" fill="#B2B8BF"/><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 8.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#FFFF00"/><path d="M 2.5 12.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#FFFF00"/></svg>';
                 else if (item.priority.includes('🟢')) priority = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 0.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z m 11 1 h -11 c -0.2761 0 -0.5 0.2239 -0.5 0.5 c 0 0.2761 0.2239 0.5 0.5 0.5 h 11 c 0.2761 0 0.5 -0.2239 0.5 -0.5 c 0 -0.2761 -0.2239 -0.5 -0.5 -0.5 z" fill="#B2B8BF"/><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 4.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z m 11 1 h -11 c -0.2761 0 -0.5 0.2239 -0.5 0.5 c 0 0.2761 0.2239 0.5 0.5 0.5 h 11 c 0.2761 0 0.5 -0.2239 0.5 -0.5 c 0 -0.2761 -0.2239 -0.5 -0.5 -0.5 z" fill="#B2B8BF"/><path fill-rule="evenodd" clip-rule="evenodd" d="M 2.5 8.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z m 11 1 h -11 c -0.2761 0 -0.5 0.2239 -0.5 0.5 c 0 0.2761 0.2239 0.5 0.5 0.5 h 11 c 0.2761 0 0.5 -0.2239 0.5 -0.5 c 0 -0.2761 -0.2239 -0.5 -0.5 -0.5 z" fill="#B2B8BF"/><path d="M 2.5 12.5 c -0.8284 0 -1.5 0.6716 -1.5 1.5 c 0 0.8284 0.6716 1.5 1.5 1.5 h 11 c 0.8284 0 1.5 -0.6716 1.5 -1.5 c 0 -0.8284 -0.6716 -1.5 -1.5 -1.5 h -11 z" fill="#00FF00"/></svg>';
-                
+
                 row.innerHTML = `
                     <td style="text-align:left">${priority} ${item.rule}</td>
                     <td style="text-align:right">${formatNumber(item.count)}</td>
                 `;
                 tbody.appendChild(row);
             });
-            
-            // Добавляем итоговую строку
-            const totalRow = document.createElement('tr');
-            totalRow.style.fontWeight = 'bold';
-            const totalAlerts = alerts.reduce((sum, item) => sum + item.count, 0);
-            totalRow.innerHTML = `
+
+            const total = document.createElement('tr');
+            total.style.fontWeight = 'bold';
+            total.innerHTML = `
                 <td style="text-align:left">Итого</td>
-                <td style="text-align:right">${formatNumber(totalAlerts)}</td>
+                <td style="text-align:right">${formatNumber(alerts.reduce((sum, item) => sum + item.count, 0))}</td>
             `;
-            tbody.appendChild(totalRow);
+            tbody.appendChild(total);
         }
-        
-        // Инициализация при загрузке страницы
+
         window.onload = initializeReport;
     </script>
 </body>
+
 </html>

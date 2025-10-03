@@ -1,9 +1,8 @@
 #!/bin/bash
 log=log.txt; help="
 Usage:
-sudo bash this.sh -h <host> -p <port>
-sudo bash this.sh -s
-sudo bash this.sh -h <host> -p <port> -s
+sudo bash this.sh -h <host> -p <port> [-slr]
+sudo bash this.sh [-sl]
 
 Options:
   -h, --host     <host>  SIEM hostname
@@ -44,11 +43,13 @@ done
 # check rights and required commands/packages
 [ "$(id -u)" != 0 ] && { echo "ERROR: There are not enough privileges to execute."; exit 1; }
 which service auditd auditctl tee base64 diff sed cat echo 1>/dev/null || { echo -e "ERROR: Some of the required packages are missing."; exit 1; }
-[ $remote ] || which rsyslogd 1>/dev/null || which syslog-ng 1>/dev/null || { echo -e "ERROR: rsyslog or syslog-ng packages are missing."; exit 1; }
+[ $remote ] && { 
+    which audisp-remote 1>/dev/null || { echo -e "ERROR: audispd-plugins package are missing."; exit 1; }
+} || {
+    which rsyslogd 1>/dev/null || which syslog-ng 1>/dev/null || { echo -e "ERROR: rsyslog or syslog-ng packages are missing."; exit 1; }
+}
 
 ([ $host ] && [ $port ]) || ([ ! $host ] && [ ! $port ] && [ $journal ]) || { echo "ERROR: Not correct params: need specify --host and --port or/and use --save"; exit 1; }
-
-[ $host ] && [ $port ] && { host $host || exit 1; }
 
 # get os,auditd info
 echo ">cat /etc/*release* /etc/*version* 2>/dev/null:" > $log
@@ -80,7 +81,7 @@ echo $rules | base64 -d > $file && chmod 610 $file
     audit=/etc/audisp/audispd.conf
     syslogf=/etc/audisp/plugins.d/syslog.conf
     audispf=/etc/audisp/plugins.d/au-remote.conf
-    remotef=/etc/audit/audisp-remote.conf
+    remotef=/etc/audisp/audisp-remote.conf
     syslogc="active = yes\ndirection = out\npath = builtin_syslog\ntype = builtin\nargs = LOG_INFO LOG_LOCAL6"
 }
 
@@ -91,13 +92,10 @@ auditspc="active = yes\ndirection = out\npath = /sbin/audisp-remote\ntype = alwa
 
 which $audisp 1>/dev/null || { echo -e "ERROR: File $audisp not found, plugin/package audispd-plugins maybe not installed."; exit 1; } 
 
-# edit syslog plugin config
-change $syslogf "$syslogc" $log
-
 # edit auditd/audispd config
 [ ! -f $auditdf.bak ] && cat $auditdf>$auditdf.bak 2>/dev/null && echo "INFO: The current configuration of $auditdf is saved in $auditdf.bak";
 [ $listen ] && {
-    sed -ri "s/^\s*#?#?tcp_listen_port\s*=\s*.*/tcp_listen_port = $port/g; s/^\s*transport\s*=\s*.+/transport = TCP/g" $auditdf
+    sed -ri "s/^\s*#?#?tcp_listen_port\s*=\s*.*/tcp_listen_port = $port/g; s/^\s*transport\s*=\s*.+/transport = TCP/g; s/^\s*distribute_network\s*=\s*.+/distribute_network = yes/g;" $auditdf
 } || {
     sed -ri "s/^\s*tcp_listen_port\s*=\s*.*/##\0/g" $auditdf
 }
@@ -108,8 +106,11 @@ change $auditdf "$auditdc" $log
 [ $remote ] && {
     # edit audisp-remote plugin config
     change $remotef "$remotec" $log
-    change $audispf "$audispc" $log 
+    change $audispf "$auditspc" $log 
 } || {
+    # edit syslog plugin config
+    change $syslogf "$syslogc" $log
+
     active=$((systemctl list-unit-files --type=service --state=active,enabled 2>/dev/null || service --status-all 2>/dev/null) | grep -oE "(r)?syslog(d|-ng)?")
     # edit rsyslog config
     [ $(which rsyslogd) ] && {

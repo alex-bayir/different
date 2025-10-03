@@ -48,6 +48,8 @@ which service auditd auditctl tee base64 diff sed cat echo 1>/dev/null || { echo
 
 ([ $host ] && [ $port ]) || ([ ! $host ] && [ ! $port ] && [ $journal ]) || { echo "ERROR: Not correct params: need specify --host and --port or/and use --save"; exit 1; }
 
+[ $host ] && [ $port ] && { host $host || exit 1; }
+
 # get os,auditd info
 echo ">cat /etc/*release* /etc/*version* 2>/dev/null:" > $log
 cat /etc/*release* /etc/*version* 2>/dev/null >> $log
@@ -121,7 +123,7 @@ change $auditdf "$auditdc" $log
         service=$active; process=syslog-ng; file=/etc/syslog-ng/syslog-ng.conf;
         [ ! -f $file.bak ] && cat $file>$file.bak 2>/dev/null && echo "INFO: The current configuration of $file is saved in $file.bak";
         src=$(sed -nr ':a;N;$!ba; s/#[^\n]*\n//g; s/\n/\\n/g; s/.*source (\S+)\s*[{][^}]+(system[(][)]|internal[(][)]).*/\1/p' $file | head -n 1); [ $src ] || { echo "ERROR: $file: cannot find source block with directive system() or internal()!"; exit 1;}
-        sed -rni "s/[#]*\s*filter f_audit [{] program[(]\"audit\"[)][^{}]+[}];/filter siem{ this line will be removed in the next following expressions };/g; 0,/^[^#]*filter/s//filter f_audit { program(\"audit\") or program(\"audispd\"); };\nfilter/; s/\s+and\s+not\s+filter[(]f_audit[)]//g; /#|f_info|file|source|destination/! s/info[^()]*[)]|local6[^()]*[)]|facility[(]auth,\s*authpriv[^()]*[)]/\0 and not filter(f_audit)/g; /filter\s+siem\s*[{][^{}]+[}][;]|destination siem\s*[{][^{}]+[}][;]|.*filter[(]siem[)];\s*destination[(]siem[)].*[;]/! p; $([ $host ] && [ $port ] && echo "\$afilter siem { facility(local6) and level(info); };\ndestination siem { tcp(\"$host\" port($port) log-fifo-size(1000)); };\nlog { source($src); filter(siem); destination(siem); flags(flow-control); };")" $file 2>&1 | tee -a $log && { echo $file: 2>&1 | tee -a $log && diff $file $file.bak 2>&1 | tee -a $log; } || { echo "ERROR: cannot change $file"; exit 1; }
+        sed -rni "s/[#]*\s*filter f_audit [{] program[(]\"audit\"[)][^{}]+[}];/destination siem{ this line will be removed in the next following expressions };/g; 0,/^[^#]*filter/s//filter f_audit { program(\"audit\") or program(\"audispd\"); };\nfilter/; s/\s+and\s+not\s+filter[(]f_audit[)]//g; /#|f_info|file|source|destination/! s/info[^()]*[)]|local6[^()]*[)]|facility[(]auth,\s*authpriv[^()]*[)]/\0 and not filter(f_audit)/g; /filter\s+siem\s*[{][^{}]+[}][;]|destination siem\s*[{][^{}]+[}][;]|.*filter[(]siem[)];\s*destination[(]siem[)].*[;]/! p; $([ $host ] && [ $port ] && echo "\$afilter siem { facility(local6) and level(info); };\ndestination siem { tcp(\"$host\" port($port) log-fifo-size(1000)); };\nlog { source($src); filter(siem); destination(siem); flags(flow-control); };")" $file 2>&1 | tee -a $log && { echo $file: 2>&1 | tee -a $log && diff $file $file.bak 2>&1 | tee -a $log; } || { echo "ERROR: cannot change $file"; exit 1; }
     }
 
     # edit syslogd config
@@ -134,9 +136,9 @@ change $auditdf "$auditdc" $log
 
 # Restart services
 [ $remote ] || {
-    [ `which systemctl` ] && systemctl restart $service 2>&1 | tee -a $log || [ `which service` ] && { service $service stop 2>&1 | tee -a $log && service $service start 2>&1 | tee -a $log; } || { kill -HUP $(ps -C $process -o pid=) && echo -e "INFO: $service was HUPed\n$(grep $service   /var/log/syslog)" | tail -n 10 2>&1 | tee -a $log; }
+    [ `which systemctl` ] && systemctl restart $service 2>&1 | tee -a $log || [ `which service` ] && { service $service stop 2>&1 | tee -a $log || kill -TERM $(ps -C $process -o pid=) && sleep 5 && service $service start 2>&1 | tee -a $log; } || { kill -HUP $(ps -C $process -o pid=) && echo -e "INFO: $service was HUPed\n$(grep $service   /var/log/syslog | tail -n 10)" | tee -a $log; }
 }
-[ `which systemctl` ] && systemctl restart auditd   2>&1 | tee -a $log || [ `which service` ] && { service auditd   stop 2>&1 | tee -a $log && service auditd   start 2>&1 | tee -a $log; } || { kill -HUP $(ps -C auditd   -o pid=) && echo -e "INFO: auditd was HUPed\n$(grep auditd   /var/log/syslog)" | tail -n 10 2>&1 | tee -a $log; }
+[ `which systemctl` ] && systemctl restart auditd   2>&1 | tee -a $log || [ `which service` ] && { service auditd   stop 2>&1 | tee -a $log || kill -TERM $(ps -C auditd -o pid=) && sleep 5 && service auditd   start 2>&1 | tee -a $log; } || { kill -HUP $(ps -C auditd   -o pid=) && echo -e "INFO: auditd was HUPed\n$(grep audi[st]   /var/log/messages | tail -n 10)" | tee -a $log; }
 echo ""; for i in {9..0}; do sleep 1s; echo -en "Waiting for $i seconds after restarting services. \r"; done; echo -en "\r\n"
 [ $remote ] || {
     [ `which systemctl` ] && systemctl status $service 2>&1 | tee -a $log || service $service status 2>&1 | tee -a $log

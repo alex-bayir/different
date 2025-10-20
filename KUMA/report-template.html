@@ -48,7 +48,6 @@
             min-width: 300px;
             max-width: 400px;
             max-height: 200px;
-            padding: 8px;
             border: 1px solid #ddd;
             border-radius: 8px;
             background-color: white;
@@ -176,6 +175,137 @@
     </div>
 
     <script>
+        const doughnutCenterPlugin = {
+            id: 'doughnutCenter',
+            defaults: {
+                totalText: {
+                    color: '#333333',
+                    fontFamily: 'Arial',
+                    fontSize: 32,
+                    fontWeight: 'bold',
+                    formatter: (value) => value.toString()
+                },
+                hoverStyle: {
+                    totalColor: '#FF6384',
+                    labelColor: '#FF6384'
+                },
+                animation: {
+                    duration: 300
+                }
+            },
+            
+            currentValue: 0,
+            targetValue: 0,
+            animationStart: 0,
+            isAnimating: false,
+            currentHoverIndex: -1,
+
+            // Инициализация для каждой диаграммы
+            beforeInit(chart, args, options) {
+                // Создаем уникальные данные для каждой диаграммы
+                chart._centerPluginData = {
+                    currentValue: 0,
+                    targetValue: 0,
+                    animationStart: 0,
+                    isAnimating: false,
+                    currentHoverIndex: -1
+                };
+            },
+
+            beforeDraw(chart, args, options) {
+                this.drawCenterText(chart, options);
+            },
+
+            drawCenterText(chart, options) {
+                const { ctx, chartArea } = chart;
+                if (!chartArea) return;
+                
+                const data = chart._centerPluginData;
+                const centerX = (chartArea.left + chartArea.right) / 2;
+                const centerY = (chartArea.top + chartArea.bottom) / 2;
+                ctx.save();
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const displayValue = data.isAnimating ? 
+                    Math.floor(data.currentValue) : 
+                    data.targetValue;
+                // Основной текст
+                ctx.font = `${options.totalText.fontWeight} ${options.totalText.fontSize}px ${options.totalText.fontFamily}`;
+                ctx.fillStyle = options.totalText.color;
+                ctx.fillText(options.totalText.formatter(displayValue),centerX,centerY);
+                ctx.restore();
+            },
+
+            animateValue(chart, newValue) {
+                const data = chart._centerPluginData;
+                if (data.targetValue === newValue) return;
+                data.targetValue = newValue;
+                data.isAnimating = true;
+                data.animationStart = performance.now();
+                
+                const animate = (currentTime) => {
+                    const elapsed = currentTime - data.animationStart;
+                    const progress = Math.min(elapsed / this.defaults.animation.duration, 1);
+                    
+                    const easeOutQuart = 1 - Math.pow(1 - progress, 4);
+                    data.currentValue = data.currentValue + (data.targetValue - data.currentValue) * easeOutQuart;
+                    
+                    if (progress < 1) {
+                        requestAnimationFrame(animate);
+                    } else {
+                        data.currentValue = data.targetValue;
+                        data.isAnimating = false;
+                    }
+                    chart.draw();
+                };
+                
+                requestAnimationFrame(animate);
+            },
+
+            // Обработчики событий
+            afterInit(chart, args, options) {
+                const data = chart._centerPluginData;
+                data.totalValue = chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+                data.targetValue = data.totalValue;
+                data.currentValue = data.totalValue;
+            },
+
+            afterEvent(chart, args) {
+                if (args.event.type === 'mousemove' || args.event.type === 'mouseout') {
+                    this.handleHover(chart, args);
+                }
+            },
+
+            handleHover(chart, args) {
+                const activeElements = chart.getActiveElements();
+                const options = chart.options.plugins.doughnutCenter;
+                const data = chart._centerPluginData;
+                
+                if (activeElements.length > 0) {
+                    const hoverIndex = activeElements[0].index;
+                    const hoverValue = chart.data.datasets[0].data[hoverIndex];
+                    
+                    if (data.currentHoverIndex !== hoverIndex) {
+                        data.currentHoverIndex = hoverIndex;
+                        this.animateValue(chart, hoverValue);
+                        
+                        // Временно меняем стили для hover
+                        options.totalText.color = this.defaults.hoverStyle.totalColor;
+                    }
+                } else if (data.currentHoverIndex !== -1) {
+                    data.currentHoverIndex = -1;
+                    this.animateValue(chart, data.totalValue);
+                    
+                    // Возвращаем стандартные стили
+                    options.totalText.color = this.defaults.totalText.color;
+                }
+            }
+        };
+
+        Chart.register(doughnutCenterPlugin);
+    </script>
+
+    <script>
         String.prototype.ellip = function (length) {
             return this.length > length ? this.substring(0, length) + "…" : this;
         }
@@ -250,12 +380,14 @@
                     datasets: [{
                         data: data,
                         borderWidth: 0,
+                        borderRadius: 4,
+                        hoverOffset: 20,
                         backgroundColor: [
-                            '#FF6384',
-                            '#36A2EB',
-                            '#FFCE56',
-                            '#4BC0C0',
-                            '#9966FF',
+                            '#426FEC',
+                            '#86C16A',
+                            '#8E76DD',
+                            '#FF7B43',
+                            '#F3B846',
                             '#C9CBCF'
                         ]
                     }]
@@ -293,12 +425,14 @@
                     datasets: [{
                         data: data,
                         borderWidth: 0,
+                        borderRadius: 4,
+                        hoverOffset: 20,
                         backgroundColor: [
-                            '#FF6384',
-                            '#36A2EB',
-                            '#FFCE56',
-                            '#4BC0C0',
-                            '#9966FF',
+                            '#426FEC',
+                            '#86C16A',
+                            '#8E76DD',
+                            '#FF7B43',
+                            '#F3B846',
                             '#C9CBCF'
                         ].slice(0, labels.length)
                     }]
@@ -340,6 +474,8 @@
                     datasets: [{
                         data: data,
                         borderWidth: 0,
+                        borderRadius: 4,
+                        hoverOffset: 20,
                         backgroundColor: [
                             '#940000',
                             '#FF0000',
@@ -379,12 +515,14 @@
                     datasets: [{
                         data: data,
                         borderWidth: 0,
+                        borderRadius: 4,
+                        hoverOffset: 20,
                         backgroundColor: [
-                            '#FF6384',
-                            '#36A2EB',
-                            '#FFCE56',
-                            '#4BC0C0',
-                            '#9966FF',
+                            '#426FEC',
+                            '#86C16A',
+                            '#8E76DD',
+                            '#FF7B43',
+                            '#F3B846',
                             '#C9CBCF'
                         ]
                     }]
@@ -397,6 +535,7 @@
             return {
                 responsive: true,
                 maintainAspectRatio: false,
+                layout: {padding: 8},
                 plugins: {
                     legend: {
                         position: 'right',
@@ -419,6 +558,21 @@
                         text: title,
                         font: {
                             size: 16
+                        }
+                    },
+                    doughnutCenter: {
+                        totalText: {
+                            fontSize: 12,
+                            fontWeight: 'bold',
+                            color: '#333333',
+                            formatter: (value) => `${value}`
+                        },
+                        hoverStyle: {
+                            totalColor: '#36A2EB',
+                            labelColor: '#36A2EB'
+                        },
+                        animation: {
+                            duration: 400
                         }
                     }
                 }

@@ -175,40 +175,32 @@
     </div>
 
     <script>
-        const doughnutCenterPlugin = {
-            id: 'doughnutCenter',
+        const totalPlugin = {
+            id: 'total',
             defaults: {
-                totalText: {
+                text: {
                     color: '#333333',
                     fontFamily: 'Arial',
                     fontSize: 32,
                     fontWeight: 'bold',
                     formatter: (value) => value.toString()
                 },
-                hoverStyle: {
-                    totalColor: '#FF6384',
-                    labelColor: '#FF6384'
+                hover: {
+                    color: '#FF6384'
                 },
                 animation: {
                     duration: 300
                 }
             },
-            
-            currentValue: 0,
-            targetValue: 0,
-            animationStart: 0,
-            isAnimating: false,
-            currentHoverIndex: -1,
 
-            // Инициализация для каждой диаграммы
             beforeInit(chart, args, options) {
-                // Создаем уникальные данные для каждой диаграммы
-                chart._centerPluginData = {
-                    currentValue: 0,
-                    targetValue: 0,
-                    animationStart: 0,
+                chart._totalData = {
+                    current: 0,
+                    target: 0,
+                    astart: 0,
                     isAnimating: false,
-                    currentHoverIndex: -1
+                    hidden: new Set(),
+                    hover: -1
                 };
             },
 
@@ -220,40 +212,35 @@
                 const { ctx, chartArea } = chart;
                 if (!chartArea) return;
                 
-                const data = chart._centerPluginData;
+                const data = chart._totalData;
                 const centerX = (chartArea.left + chartArea.right) / 2;
                 const centerY = (chartArea.top + chartArea.bottom) / 2;
                 ctx.save();
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                const displayValue = data.isAnimating ? 
-                    Math.floor(data.currentValue) : 
-                    data.targetValue;
-                // Основной текст
-                ctx.font = `${options.totalText.fontWeight} ${options.totalText.fontSize}px ${options.totalText.fontFamily}`;
-                ctx.fillStyle = options.totalText.color;
-                ctx.fillText(options.totalText.formatter(displayValue),centerX,centerY);
+                const displayValue = data.isAnimating ? Math.floor(data.current) : data.target;
+                
+                ctx.font = `${options.text.fontWeight} ${options.text.fontSize}px ${options.text.fontFamily}`;
+                ctx.fillStyle = options.text.color;
+                ctx.fillText(options.text.formatter(displayValue),centerX,centerY);
                 ctx.restore();
             },
 
-            animateValue(chart, newValue) {
-                const data = chart._centerPluginData;
-                if (data.targetValue === newValue) return;
-                data.targetValue = newValue;
+            animateValue(chart, value) {
+                const data = chart._totalData;
+                if (data.target == value) return;
+                data.target = value;
                 data.isAnimating = true;
-                data.animationStart = performance.now();
+                data.astart = performance.now();
                 
-                const animate = (currentTime) => {
-                    const elapsed = currentTime - data.animationStart;
-                    const progress = Math.min(elapsed / this.defaults.animation.duration, 1);
-                    
-                    const easeOutQuart = 1 - Math.pow(1 - progress, 4);
-                    data.currentValue = data.currentValue + (data.targetValue - data.currentValue) * easeOutQuart;
+                const animate = (time) => {
+                    const progress = Math.min((time - data.astart) / this.defaults.animation.duration, 1);
+                    data.current = data.current + (data.target - data.current) * (1 - Math.pow(1 - progress, 4));
                     
                     if (progress < 1) {
                         requestAnimationFrame(animate);
                     } else {
-                        data.currentValue = data.targetValue;
+                        data.current = data.target;
                         data.isAnimating = false;
                     }
                     chart.draw();
@@ -262,47 +249,54 @@
                 requestAnimationFrame(animate);
             },
 
+            calculateVisibleTotal(chart){
+                return chart.data.datasets[0].data.reduce((acc, value, index) => chart._totalData.hidden.has(index) ? acc : acc + value, 0);
+            },
+
             // Обработчики событий
             afterInit(chart, args, options) {
-                const data = chart._centerPluginData;
-                data.totalValue = chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
-                data.targetValue = data.totalValue;
-                data.currentValue = data.totalValue;
+                const data = chart._totalData;
+                data.total = this.calculateVisibleTotal(chart);
+                data.target = data.total;
+                data.current = data.total;
             },
 
             afterEvent(chart, args) {
-                if (args.event.type === 'mousemove' || args.event.type === 'mouseout') {
+                if (args.event.type == 'mousemove' || args.event.type == 'mouseout') {
                     this.handleHover(chart, args);
                 }
             },
 
             handleHover(chart, args) {
-                const activeElements = chart.getActiveElements();
+                const active = chart.getActiveElements();
                 const options = chart.options.plugins.doughnutCenter;
-                const data = chart._centerPluginData;
+                const data = chart._totalData;
                 
-                if (activeElements.length > 0) {
-                    const hoverIndex = activeElements[0].index;
-                    const hoverValue = chart.data.datasets[0].data[hoverIndex];
+                if (active.length > 0) {
+                    const index = active[0].index;
                     
-                    if (data.currentHoverIndex !== hoverIndex) {
-                        data.currentHoverIndex = hoverIndex;
-                        this.animateValue(chart, hoverValue);
+                    if (data.hover != index) {
+                        data.hover = index;
+                        this.animateValue(chart, chart.data.datasets[0].data[index]);
                         
-                        // Временно меняем стили для hover
-                        options.totalText.color = this.defaults.hoverStyle.totalColor;
+                        options.text.color = this.defaults.hover.color;
                     }
-                } else if (data.currentHoverIndex !== -1) {
-                    data.currentHoverIndex = -1;
-                    this.animateValue(chart, data.totalValue);
+                } else if (data.hover != -1) {
+                    data.hover = -1;
+                    this.animateValue(chart, this.calculateVisibleTotal(chart));
                     
-                    // Возвращаем стандартные стили
-                    options.totalText.color = this.defaults.totalText.color;
+                    options.text.color = this.defaults.text.color;
                 }
+            },
+
+            afterUpdate(chart, args, options) {
+                const data = chart._totalData; data.hidden.clear();
+                chart.legend.legendItems.map((element,index)=>element.hidden ? index : null).filter(((element)=>element!=null)).forEach(data.hidden.add, data.hidden);
+                this.animateValue(chart, this.calculateVisibleTotal(chart));
             }
         };
 
-        Chart.register(doughnutCenterPlugin);
+        Chart.register(totalPlugin);
     </script>
 
     <script>
@@ -560,16 +554,15 @@
                             size: 16
                         }
                     },
-                    doughnutCenter: {
-                        totalText: {
+                    total: {
+                        text: {
                             fontSize: 12,
                             fontWeight: 'bold',
                             color: '#333333',
                             formatter: (value) => `${value}`
                         },
-                        hoverStyle: {
-                            totalColor: '#36A2EB',
-                            labelColor: '#36A2EB'
+                        hover: {
+                            color: '#36A2EB'
                         },
                         animation: {
                             duration: 400

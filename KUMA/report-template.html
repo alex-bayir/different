@@ -277,7 +277,7 @@
                     
                     if (data.hover != index) {
                         data.hover = index;
-                        this.animateValue(chart, chart.data.datasets[0].data[index]);
+                        this.animateValue(chart, chart.data.datasets[active[0].datasetIndex].data[index]);
                         
                         options.text.color = this.defaults.hover.color;
                     }

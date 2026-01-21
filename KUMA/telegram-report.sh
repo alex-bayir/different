@@ -36,7 +36,7 @@ events=$(curl -s -X POST "https://kuma.example.com:7223/api/v3/events/" -H "Auth
 }')
 
 alerts=$(curl -s -X POST "https://kuma.example.com:7223/api/v3/events/" -H "Authorization: Bearer $KUMA" -d '{
-    "sql": "SELECT count(ID) AS count,replace(replace(replace(replace(toString(any(Priority)),'\''1'\'','\''🟢'\''),'\''2'\'','\''🟡'\''),'\''3'\'','\''🔴'\''),'\''4'\'','\''☢️'\'') as priority, if(match(CorrelationRuleName,'\''NAD (alerts|detections).*'\''),concat('\''NAD. '\'',Name),if(CorrelationRuleName like '\''WAF alerts%'\'',concat('\''WAF. '\'',DeviceEventCategory),CorrelationRuleName)) as rule FROM `events` WHERE Type = 3 AND NOT match(rule, '\''R\\d\\d\\d_\\d\\d_'\'') GROUP BY rule ORDER BY count DESC LIMIT 50",
+    "sql": "SELECT count(ID) AS count,replace(replace(replace(replace(toString(any(Priority)),'\''1'\'','\''🟢'\''),'\''2'\'','\''🟡'\''),'\''3'\'','\''🔴'\''),'\''4'\'','\''☢️'\'') as priority, if(match(CorrelationRuleName,'\''NAD (alerts|detections).*'\''),concat('\''NAD. '\'',Name),if(CorrelationRuleName like '\''WAF alerts%'\'',concat('\''WAF. '\'',DeviceEventCategory),CorrelationRuleName)) as rule FROM `events` WHERE Type = 3 AND NOT match(rule, '\''R\\d\\d\\d_\\d\\d_'\'') GROUP BY rule ORDER BY count DESC LIMIT 250",
     "emptyFields": true,
     "rawTimestamps": false,
     "period": {
